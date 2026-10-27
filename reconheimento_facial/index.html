@@ -1,0 +1,118 @@
+<!DOCTYPE html>
+<html lang="pt">
+<head>
+    <meta charset="UTF-8">
+    <title>Reconhecimento Facial - Trabalho</title>
+    <!-- Carrega a biblioteca face-api.js -->
+    <script src="https://unpkg.com/face-api.js@0.22.2/dist/face-api.min.js"></script>
+    <style>
+        body { margin: 0; padding: 20px; display: flex; flex-direction: column; align-items: center; background: #222; color: #fff; font-family: Arial, sans-serif; }
+        video, canvas { position: absolute; }
+        #container { position: relative; margin-top: 20px; }
+        #status { font-size: 18px; font-weight: bold; color: #ffa500; margin-bottom: 10px; }
+        .painel { background: #333; padding: 15px; border-radius: 8px; text-align: center; margin-bottom: 15px; }
+    </style>
+</head>
+<body>
+
+    <h2>Reconhecimento Facial (Trabalho Prático)</h2>
+    
+    <div class="painel">
+        <p id="status">A carregar modelos de inteligência artificial...</p>
+        <!-- Botão para carregar a foto de referência e evitar o erro de CORS -->
+        <div id="uploadDiv" style="display:none;">
+            <label>Selecione a sua foto de referência (<strong>usuario.jpg</strong>): </label>
+            <input type="file" id="imageUpload" accept="image/jpeg, image/png">
+        </div>
+    </div>
+    
+    <div id="container">
+        <video id="video" autoplay muted width="640" height="480"></video>
+    </div>
+
+    <script>
+        const video = document.getElementById('video');
+        const statusText = document.getElementById('status');
+        const uploadDiv = document.getElementById('uploadDiv');
+        const imageUpload = document.getElementById('imageUpload');
+        let faceMatcher = null;
+
+        async function iniciar() {
+            try {
+                statusText.innerText = "A carregar modelos de IA...";
+                
+                // Carregar os modelos necessários da internet
+                const MODEL_URL = 'https://raw.githubusercontent.com/justadudewhohacks/face-api.js/master/weights';
+                await faceapi.nets.tinyFaceDetector.loadFromUri(MODEL_URL);
+                await faceapi.nets.faceLandmark68Net.loadFromUri(MODEL_URL);
+                await faceapi.nets.faceRecognitionNet.loadFromUri(MODEL_URL);
+
+                statusText.innerText = "Modelos carregados! Por favor, selecione a foto 'usuario.jpg'.";
+                uploadDiv.style.display = "block";
+
+            } catch (err) {
+                statusText.innerText = "Erro ao carregar modelos: " + err.message;
+            }
+        }
+
+        // Quando selecionar a foto usuario.jpg
+        imageUpload.addEventListener('change', async () => {
+            const file = imageUpload.files[0];
+            if (!file) return;
+
+            statusText.innerText = "A processar a foto de referência...";
+            
+            // Ler a imagem selecionada pelo utilizador
+            const img = await faceapi.bufferToImage(file);
+            const refDetections = await faceapi.detectSingleFace(img, new faceapi.TinyFaceDetectorOptions()).withFaceLandmarks().withFaceDescriptor();
+
+            if (!refDetections) {
+                statusText.innerText = "Erro: Nenhum rosto encontrado na foto. Escolha uma foto clara de 'usuario.jpg'!";
+                return;
+            }
+
+            // Criar o comparador facial
+            faceMatcher = new faceapi.FaceMatcher(refDetections, 0.6);
+            uploadDiv.style.display = "none";
+            statusText.innerText = "A ligar à câmara...";
+
+            // Ligar a webcam
+            const stream = await navigator.mediaDevices.getUserMedia({ video: {} });
+            video.srcObject = stream;
+            statusText.innerText = "Sistema pronto a reconhecer!";
+        });
+
+        video.addEventListener('play', () => {
+            const canvas = faceapi.createCanvasFromMedia(video);
+            document.getElementById('container').append(canvas);
+            const displaySize = { width: video.width, height: video.height };
+            faceapi.matchDimensions(canvas, displaySize);
+
+            setInterval(async () => {
+                if (!faceMatcher) return;
+
+                const detections = await faceapi.detectSingleFace(video, new faceapi.TinyFaceDetectorOptions()).withFaceLandmarks().withFaceDescriptor();
+                const context = canvas.getContext('2d');
+                context.clearRect(0, 0, canvas.width, canvas.height);
+
+                if (detections) {
+                    const resizedDetections = faceapi.resizeResults(detections, displaySize);
+                    const result = faceMatcher.findBestMatch(resizedDetections.descriptor);
+                    const box = resizedDetections.detection.box;
+                    
+                    let label = result.label === 'unknown' ? 'Desconhecido' : 'Autorizado (Você)';
+                    let color = result.label === 'unknown' ? 'red' : 'green';
+
+                    const drawBox = new faceapi.draw.DrawBox(box, { 
+                        label: `${label} (${Math.round(result.distance * 100) / 100})`,
+                        boxColor: color
+                    });
+                    drawBox.draw(canvas);
+                }
+            }, 100);
+        });
+
+        iniciar();
+    </script>
+</body>
+</html>
